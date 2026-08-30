@@ -2,6 +2,8 @@ import pygame
 import chess
 import sys
 import os
+import threading
+from bot_controller import ChessBotController
 
 # --- Configuration & Dimensions ---
 BASE_BORDER = 8
@@ -9,7 +11,6 @@ BASE_SQ_SIZE = 20
 DIMENSION = 8
 BASE_SIZE = BASE_BORDER * 2 + (BASE_SQ_SIZE * DIMENSION)  # 180
 
-# Integer upscale multiplier
 SCALE = 4
 
 BOARD_SIZE = BASE_SIZE * SCALE       # 720
@@ -17,7 +18,6 @@ BORDER_SIZE = BASE_BORDER * SCALE    # 32
 SQ_SIZE = BASE_SQ_SIZE * SCALE       # 80
 PLAY_AREA = BOARD_SIZE - (BORDER_SIZE * 2)
 
-# New UI dimensions
 UI_WIDTH = 250
 WINDOW_WIDTH = BOARD_SIZE + UI_WIDTH
 WINDOW_HEIGHT = BOARD_SIZE
@@ -31,7 +31,6 @@ PIECE_MAP = {
     'p': 'bp', 'n': 'bN', 'b': 'bB', 'r': 'bR', 'q': 'bQ', 'k': 'bK'
 }
 
-# Material values for counting
 PIECE_VALUES = {
     chess.PAWN: 1,
     chess.KNIGHT: 3,
@@ -40,14 +39,22 @@ PIECE_VALUES = {
     chess.QUEEN: 9
 }
 
+# Bot configuration (Human plays White, Bot plays Black)
+BOT_COLOR = chess.BLACK
+is_bot_thinking = False
+
+def get_engine_executable_path():
+    """Detects operating system and returns the binary path."""
+    if sys.platform.startswith("win"):
+        return os.path.join("Engine", "engine.exe")
+    return os.path.join("Engine", "engine")
+
 def load_assets():
-    """Loads pixel art and scales using nearest-neighbor (crisp pixels)."""
+    """Loads pixel art and scales using nearest-neighbor."""
     global BOARD_IMAGE
     
     board_filename = "board.png" if os.path.exists("board.png") else "image_0.png"
     if not os.path.exists(board_filename):
-        print(f"Error: '{board_filename}' not found.")
-        # Create a fallback blank surface if image is missing to prevent instant crash for testing
         BOARD_IMAGE = pygame.Surface((BOARD_SIZE, BOARD_SIZE))
         BOARD_IMAGE.fill((200, 200, 200))
     else:
@@ -55,7 +62,7 @@ def load_assets():
         BOARD_IMAGE = pygame.transform.scale(raw_board, (BOARD_SIZE, BOARD_SIZE))
 
     if not os.path.exists("images"):
-        print("Error: 'images' folder not found. Pieces will not render.")
+        print("Error: 'images' folder not found.")
         return
 
     for symbol, filename in PIECE_MAP.items():
@@ -63,19 +70,12 @@ def load_assets():
         try:
             image = pygame.image.load(image_path).convert_alpha()
             orig_w, orig_h = image.get_size()
-            
-            target_w = orig_w * SCALE
-            target_h = orig_h * SCALE
-
-            IMAGES[symbol] = pygame.transform.scale(image, (target_w, target_h))
+            IMAGES[symbol] = pygame.transform.scale(image, (orig_w * SCALE, orig_h * SCALE))
         except Exception as e:
             print(f"Could not load {image_path}. Error: {e}")
 
 def get_square_from_pos(pos):
-    """Translates pixel (x, y) coordinates into a python-chess square index."""
     x, y = pos
-    
-    # If click is outside the board (in the UI area), ignore it
     if x >= BOARD_SIZE:
         return None
         
@@ -90,17 +90,14 @@ def get_square_from_pos(pos):
     return None
 
 def highlight_squares(screen, board, selected_sq):
-    """Highlights selected piece and valid moves within the bordered board."""
     if selected_sq is not None:
         r = 7 - chess.square_rank(selected_sq)
         c = chess.square_file(selected_sq)
         
-        # Selected square overlay (blue)
         s = pygame.Surface((SQ_SIZE, SQ_SIZE), pygame.SRCALPHA)
         s.fill((0, 100, 255, 110))
         screen.blit(s, (BORDER_SIZE + c * SQ_SIZE, BORDER_SIZE + r * SQ_SIZE))
         
-        # Legal move markers (yellow dots)
         for move in board.legal_moves:
             if move.from_square == selected_sq:
                 end_r = 7 - chess.square_rank(move.to_square)
@@ -111,7 +108,6 @@ def highlight_squares(screen, board, selected_sq):
                 screen.blit(target_surface, (BORDER_SIZE + end_c * SQ_SIZE, BORDER_SIZE + end_r * SQ_SIZE))
 
 def draw_pieces(screen, board):
-    """Draws each piece centered in its square, offset by the border."""
     for r in range(DIMENSION):
         for c in range(DIMENSION):
             square = chess.square(c, 7 - r)
@@ -124,7 +120,6 @@ def draw_pieces(screen, board):
                 screen.blit(img, (pos_x, pos_y))
 
 def calculate_material(board):
-    """Returns material advantage for White and Black."""
     w_score = 0
     b_score = 0
     for pt, val in PIECE_VALUES.items():
@@ -139,7 +134,6 @@ def calculate_material(board):
     return "", ""
 
 def format_time(seconds):
-    """Formats time in seconds to MM:SS."""
     if seconds is None:
         return "--:--"
     seconds = max(0, int(seconds))
@@ -148,27 +142,29 @@ def format_time(seconds):
     return f"{mins:02d}:{secs:02d}"
 
 def draw_ui(screen, font, large_font, board, white_time, black_time):
-    """Draws the side panel with timers and piece counts."""
-    # Draw background for UI panel
     pygame.draw.rect(screen, (40, 44, 52), (BOARD_SIZE, 0, UI_WIDTH, WINDOW_HEIGHT))
     pygame.draw.line(screen, (20, 22, 26), (BOARD_SIZE, 0), (BOARD_SIZE, WINDOW_HEIGHT), 5)
 
     w_mat, b_mat = calculate_material(board)
     
-    # Text colors based on active turn
     w_timer_color = (255, 255, 255) if board.turn == chess.WHITE else (150, 150, 150)
     b_timer_color = (255, 255, 255) if board.turn == chess.BLACK else (150, 150, 150)
     
-    # --- Black Info (Top) ---
-    b_title = font.render("Black", True, (200, 200, 200))
+    # --- Black Info (Bot) ---
+    b_label = "Black (Bot)" if BOT_COLOR == chess.BLACK else "Black"
+    b_title = font.render(b_label, True, (200, 200, 200))
     b_time_txt = large_font.render(format_time(black_time), True, b_timer_color)
     b_mat_txt = font.render(b_mat, True, (180, 180, 180))
     
     screen.blit(b_title, (BOARD_SIZE + 20, 30))
     screen.blit(b_time_txt, (BOARD_SIZE + 20, 60))
     screen.blit(b_mat_txt, (BOARD_SIZE + 20, 110))
+    
+    if is_bot_thinking and board.turn == BOT_COLOR:
+        thinking_txt = font.render("Thinking...", True, (255, 215, 0))
+        screen.blit(thinking_txt, (BOARD_SIZE + 20, 150))
 
-    # --- White Info (Bottom) ---
+    # --- White Info (Human) ---
     w_title = font.render("White", True, (200, 200, 200))
     w_time_txt = large_font.render(format_time(white_time), True, w_timer_color)
     w_mat_txt = font.render(w_mat, True, (180, 180, 180))
@@ -178,7 +174,6 @@ def draw_ui(screen, font, large_font, board, white_time, black_time):
     screen.blit(w_mat_txt, (BOARD_SIZE + 20, WINDOW_HEIGHT - 60))
 
 def time_selection_screen(screen, font, large_font):
-    """Displays a menu to choose the time format."""
     options = [
         {"label": "1 Minute Bullet", "time": 60},
         {"label": "3 Minute Blitz", "time": 180},
@@ -207,15 +202,13 @@ def time_selection_screen(screen, font, large_font):
             if e.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            elif e.type == pygame.MOUSEBUTTONDOWN:
-                if e.button == 1:
-                    for rect, time_limit in buttons:
-                        if rect.collidepoint(e.pos):
-                            return time_limit
+            elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+                for rect, time_limit in buttons:
+                    if rect.collidepoint(e.pos):
+                        return time_limit
         clock.tick(FPS)
 
 def draw_game_over(screen, font, message):
-    """Draws a semi-transparent dark overlay and a game over message."""
     overlay = pygame.Surface((BOARD_SIZE, BOARD_SIZE), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 180))
     screen.blit(overlay, (0, 0))
@@ -223,7 +216,6 @@ def draw_game_over(screen, font, message):
     text = font.render(message, True, (255, 255, 255))
     text_rect = text.get_rect(center=(BOARD_SIZE // 2, BOARD_SIZE // 2))
     
-    # Draw a nice background box for the text
     padding = 20
     box_rect = text_rect.inflate(padding * 2, padding * 2)
     pygame.draw.rect(screen, (40, 44, 52), box_rect, border_radius=10)
@@ -231,24 +223,42 @@ def draw_game_over(screen, font, message):
     
     screen.blit(text, text_rect)
 
+def check_game_status(board):
+    """Checks game conclusion conditions."""
+    if board.is_checkmate():
+        winner = "White" if board.turn == chess.BLACK else "Black"
+        return f"Checkmate! {winner} wins!"
+    elif board.is_stalemate():
+        return "Draw by Stalemate"
+    elif board.is_insufficient_material():
+        return "Draw: Insufficient Material"
+    return ""
+
+def bot_worker(bot, fen, callback):
+    """Worker running in a background thread to calculate the bot's move."""
+    move_uci = bot.get_best_move(fen)
+    callback(move_uci)
+
 def main():
+    global is_bot_thinking
     pygame.init()
     pygame.font.init()
     
-    # Set up fonts
     ui_font = pygame.font.SysFont("Arial", 28, bold=True)
     time_font = pygame.font.SysFont("Arial", 48, bold=True)
     go_font = pygame.font.SysFont("Arial", 42, bold=True)
     
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    pygame.display.set_caption("Chess with Timers")
+    pygame.display.set_caption("Chess vs C++ Engine / Lichess Book")
     
-    # 1. Show time selection menu
     time_limit = time_selection_screen(screen, ui_font, time_font)
     
-    # 2. Setup game
     load_assets()
     board = chess.Board()
+    
+    # Initialize C++ engine controller
+    engine_bin = get_engine_executable_path()
+    bot = ChessBotController(engine_bin)
     
     white_time = time_limit
     black_time = time_limit
@@ -261,8 +271,22 @@ def main():
     
     clock = pygame.time.Clock()
 
+    def on_bot_move_computed(move_uci):
+        global is_bot_thinking
+        nonlocal game_over_msg
+        if move_uci:
+            try:
+                move = chess.Move.from_uci(move_uci)
+                if move in board.legal_moves:
+                    board.push(move)
+                    status = check_game_status(board)
+                    if status:
+                        game_over_msg = status
+            except ValueError:
+                pass
+        is_bot_thinking = False
+
     while running:
-        # Get time passed in seconds since last frame
         dt = clock.tick(FPS) / 1000.0 
         
         # --- Handle Timers ---
@@ -278,14 +302,23 @@ def main():
                     black_time = 0
                     game_over_msg = "White wins on time!"
 
+        # --- Trigger Bot Move ---
+        if board.turn == BOT_COLOR and not board.is_game_over() and not game_over_msg and not is_bot_thinking:
+            is_bot_thinking = True
+            threading.Thread(
+                target=bot_worker, 
+                args=(bot, board.fen(), on_bot_move_computed), 
+                daemon=True
+            ).start()
+
         # --- Handle Events ---
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False
             
             elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-                # Disable piece movement if game is over
-                if board.is_game_over() or game_over_msg:
+                # Prevent interaction if game is over or when it is the bot's turn
+                if board.is_game_over() or game_over_msg or board.turn == BOT_COLOR:
                     continue
                 
                 sq = get_square_from_pos(pygame.mouse.get_pos())
@@ -310,15 +343,9 @@ def main():
                     
                     if move in board.legal_moves:
                         board.push(move)
-                        
-                        # Check for mates/stalemates right after moving
-                        if board.is_checkmate():
-                            winner = "White" if board.turn == chess.BLACK else "Black"
-                            game_over_msg = f"Checkmate! {winner} wins!"
-                        elif board.is_stalemate():
-                            game_over_msg = "Draw by Stalemate"
-                        elif board.is_insufficient_material():
-                            game_over_msg = "Draw: Insufficient Material"
+                        status = check_game_status(board)
+                        if status:
+                            game_over_msg = status
                     
                     selected_sq = None
                     clicks = []
@@ -326,20 +353,18 @@ def main():
         # --- Rendering ---
         screen.fill((0, 0, 0))
         
-        # 1. Board & Pieces
         screen.blit(BOARD_IMAGE, (0, 0))
         highlight_squares(screen, board, selected_sq)
         draw_pieces(screen, board)
         
-        # 2. Side UI Panel
         draw_ui(screen, ui_font, time_font, board, white_time, black_time)
         
-        # 3. Game Over Overlay
         if game_over_msg:
             draw_game_over(screen, go_font, game_over_msg)
 
         pygame.display.flip()
 
+    bot.close()
     pygame.quit()
 
 if __name__ == "__main__":
