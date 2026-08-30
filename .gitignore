@@ -1,3 +1,41 @@
+# Environment variables & secrets
 .env
-venv/
+.env.*
+*.env
+
+# Python artifacts
 __pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# C++ Build outputs & binaries
+*.exe
+*.out
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+*.pdb
+*.ilk
+Engine/engine.exe
+Engine/engine
+
+# VS Code & IDE settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System temporary files
+.DS_Store
+Thumbs.db
+desktop.ini
