@@ -39,7 +39,6 @@ PIECE_VALUES = {
     chess.QUEEN: 9
 }
 
-# Bot configuration (Human plays White, Bot plays Black)
 BOT_COLOR = chess.BLACK
 is_bot_thinking = False
 
