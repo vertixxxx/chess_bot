@@ -45,7 +45,7 @@ chess/
 ## Installation & Setup
 
 1. Clone the repository:
-   git clone https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
+   git clone https://github.com/vertixxxx/chess_bot.git
    cd chess
 
 2. Set up a Python virtual environment:
@@ -62,7 +62,7 @@ chess/
 
 4. Configure environment variables:
    Create a .env file in the root directory:
-   LICHESS_TOKEN=your_lichess_personal_access_token_here
+   LICHESS_TOKEN=your_lichess_personal_access_token
 
 5. Compile the C++ Engine:
    # Windows (MinGW / GCC)
