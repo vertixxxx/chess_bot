@@ -20,7 +20,7 @@ A desktop chess application featuring an interactive graphical user interface bu
 ---
 
 ## Project Structure
-
+```
 chess/
 ├── Engine/
 │   ├── engine.cpp          # C++ chess engine implementation
@@ -31,7 +31,7 @@ chess/
 ├── bot_controller.py       # Python-to-C++ subprocess & Lichess API bridge
 ├── main.py                 # Pygame interface and game loop
 └── README.md
-
+```
 ---
 
 ## Prerequisites
